@@ -2,21 +2,26 @@ ThreadUpdater =
   init: ->
     return if g.VIEW isnt 'thread' or !Conf['Thread Updater']
 
+    @button = $.el 'a',
+      className: 'thread-refresh-shortcut fa fa-refresh'
+      title: 'Refresh Thread'
+      href: 'javascript:;'
+    $.on @button, 'click', @update
+    Header.addShortcut @button, 1
+
     html = ''
     for name, conf of Config.updater.checkbox
       checked = if Conf[name] then 'checked' else ''
       html   += "<div><label title='#{conf[1]}'><input name='#{name}' type=checkbox #{checked}> #{name}</label></div>"
 
-    html = """
-    <%= grunt.file.read('html/Monitoring/ThreadUpdater.html').replace(/>\s+</g, '><').trim() %>
-    """
+    html = <%= importHTML('Monitoring/ThreadUpdater') %>
 
     @dialog = UI.dialog 'updater', 'bottom: 0; right: 0;', html
     @timer  = $ '#update-timer',  @dialog
     @status = $ '#update-status', @dialog
     @isUpdating = Conf['Auto Update']
 
-    Thread::callbacks.push
+    Thread.callbacks.push
       name: 'Thread Updater'
       cb:   @node
 
@@ -24,7 +29,6 @@ ThreadUpdater =
     ThreadUpdater.thread       = @
     ThreadUpdater.root         = @OP.nodes.root.parentNode
     ThreadUpdater.lastPost     = +ThreadUpdater.root.lastElementChild.id.match(/\d+/)[0]
-    ThreadUpdater.outdateCount = 0
 
     for input in $$ 'input', ThreadUpdater.dialog
       if input.type is 'checkbox'
@@ -36,7 +40,6 @@ ThreadUpdater =
         when 'Auto Update This'
           $.off input, 'change', $.cb.checked
           $.on  input, 'change', ThreadUpdater.cb.autoUpdate
-          $.event 'change', null, input
         when 'Interval'
           $.on input, 'change', ThreadUpdater.cb.interval
           ThreadUpdater.cb.interval.call input
@@ -54,15 +57,14 @@ ThreadUpdater =
 
   cb:
     online: ->
-      if ThreadUpdater.online = navigator.onLine
+      if navigator.onLine
         ThreadUpdater.outdateCount = 0
-        ThreadUpdater.set 'timer', ThreadUpdater.getInterval()
-        ThreadUpdater.update() if ThreadUpdater.isUpdating
+        ThreadUpdater.setInterval()
         ThreadUpdater.set 'status', null, null
       else
         ThreadUpdater.set 'timer', null
         ThreadUpdater.set 'status', 'Offline', 'warning'
-      ThreadUpdater.cb.autoUpdate()
+      ThreadUpdater.count true
     post: (e) ->
       return unless ThreadUpdater.isUpdating and e.detail.threadID is ThreadUpdater.thread.ID
       ThreadUpdater.outdateCount = 0
@@ -71,56 +73,59 @@ ThreadUpdater =
       return if d.hidden
       # Reset the counter when we focus this tab.
       ThreadUpdater.outdateCount = 0
-      if ThreadUpdater.seconds > ThreadUpdater.interval
-        ThreadUpdater.set 'timer', ThreadUpdater.getInterval()
+      ThreadUpdater.seconds = Math.min ThreadUpdater.seconds, ThreadUpdater.interval
     scrollBG: ->
       ThreadUpdater.scrollBG = if Conf['Scroll BG']
         -> true
       else
         -> not d.hidden
     autoUpdate: (e) ->
-      ThreadUpdater.isUpdating = @checked if e
-      if ThreadUpdater.isUpdating and ThreadUpdater.online
-        ThreadUpdater.timeoutID = setTimeout ThreadUpdater.timeout, 1000
-      else
-        clearTimeout ThreadUpdater.timeoutID
+      ThreadUpdater.count ThreadUpdater.isUpdating = @checked
     interval: (e) ->
       val = Math.max 5, parseInt @value, 10
       ThreadUpdater.interval = @value = val
       $.cb.value.call @ if e
-    load: ->
+    load: (e) ->
+      $.rmClass ThreadUpdater.button, 'fa-spin'
       {req} = ThreadUpdater
+      delete ThreadUpdater.req
+      if e.type isnt 'loadend' # timeout or abort
+        req.onloadend = null
+        if e.type is 'timeout'
+          ThreadUpdater.set 'status', 'Retrying', null
+          ThreadUpdater.update()
+        return
       switch req.status
         when 200
           g.DEAD = false
           ThreadUpdater.parse JSON.parse(req.response).posts
-          ThreadUpdater.set 'timer', ThreadUpdater.getInterval()
+          ThreadUpdater.setInterval()
         when 404
           g.DEAD = true
           ThreadUpdater.set 'timer', null
           ThreadUpdater.set 'status', '404', 'warning'
-          clearTimeout ThreadUpdater.timeoutID
           ThreadUpdater.thread.kill()
           $.event 'ThreadUpdate',
             404: true
             thread: ThreadUpdater.thread
         else
           ThreadUpdater.outdateCount++
-          ThreadUpdater.set 'timer', ThreadUpdater.getInterval()
+          ThreadUpdater.setInterval()
           [text, klass] = if req.status is 304
             [null, null]
           else
             ["#{req.statusText} (#{req.status})", 'warning']
           ThreadUpdater.set 'status', text, klass
-      delete ThreadUpdater.req
 
-  getInterval: ->
+  setInterval: ->
     i = ThreadUpdater.interval
     j = Math.min ThreadUpdater.outdateCount, 10
     unless d.hidden
       # Lower the max refresh rate limit on visible tabs.
       j = Math.min j, 7
     ThreadUpdater.seconds = Math.max i, [0, 5, 10, 15, 20, 30, 60, 90, 120, 240, 300][j]
+    ThreadUpdater.set 'timer', ThreadUpdater.seconds
+    ThreadUpdater.count true
 
   set: (name, text, klass) ->
     el = ThreadUpdater[name]
@@ -132,60 +137,52 @@ ThreadUpdater =
       el.textContent = text
     el.className = klass if klass isnt undefined
 
+  count: (start) ->
+    clearTimeout ThreadUpdater.timeoutID
+    ThreadUpdater.timeout() if start and ThreadUpdater.isUpdating and navigator.onLine
+
   timeout: ->
     ThreadUpdater.timeoutID = setTimeout ThreadUpdater.timeout, 1000
-    unless n = --ThreadUpdater.seconds
-      ThreadUpdater.update()
-    else if n <= -60
-      ThreadUpdater.set 'status', 'Retrying', null
-      ThreadUpdater.update()
-    else if n > 0
-      ThreadUpdater.set 'timer', n
+    sec = ThreadUpdater.seconds--
+    ThreadUpdater.set 'timer', sec
+    ThreadUpdater.update() if sec <= 0
 
   update: ->
-    return unless ThreadUpdater.online
-    ThreadUpdater.seconds = 0
+    return unless navigator.onLine
+    $.addClass ThreadUpdater.button, 'fa-spin'
+    ThreadUpdater.count()
     ThreadUpdater.set 'timer', '...'
-    if ThreadUpdater.req
-      # abort() triggers onloadend, we don't want that.
-      ThreadUpdater.req.onloadend = null
-      ThreadUpdater.req.abort()
+    ThreadUpdater.req?.abort()
     url = "//api.4chan.org/#{ThreadUpdater.thread.board}/res/#{ThreadUpdater.thread}.json"
-    ThreadUpdater.req = $.ajax url, onloadend: ThreadUpdater.cb.load,
+    ThreadUpdater.req = $.ajax url,
+      onabort:   ThreadUpdater.cb.load
+      onloadend: ThreadUpdater.cb.load
+      ontimeout: ThreadUpdater.cb.load
+      timeout:   $.MINUTE
+    ,
       whenModified: true
 
-  updateThreadStatus: (title, OP) ->
-    titleLC = title.toLowerCase()
-    return if ThreadUpdater.thread["is#{title}"] is !!OP[titleLC]
-    unless ThreadUpdater.thread["is#{title}"] = !!OP[titleLC]
-      message = if title is 'Sticky'
-        'The thread is not a sticky anymore.'
+  updateThreadStatus: (type, status) ->
+    return unless hasChanged = ThreadUpdater.thread["is#{type}"] isnt status
+    ThreadUpdater.thread.setStatus type, status
+    change = if type is 'Sticky'
+      if status
+        'now a sticky'
       else
-        'The thread is not closed anymore.'
-      new Notice 'info', message, 30
-      $.rm $ ".#{titleLC}Icon", ThreadUpdater.thread.OP.nodes.info
-      return
-    message = if title is 'Sticky'
-      'The thread is now a sticky.'
+        'not a sticky anymore'
     else
-      'The thread is now closed.'
-    new Notice 'info', message, 30
-    icon = $.el 'img',
-      src: "//static.4chan.org/image/#{titleLC}.gif"
-      alt: title
-      title: title
-      className: "#{titleLC}Icon"
-    root = $ '[title="Quote this post"]', ThreadUpdater.thread.OP.nodes.info
-    if title is 'Closed'
-      root = $('.stickyIcon', ThreadUpdater.thread.OP.nodes.info) or root
-    $.after root, [$.tn(' '), icon]
+      if status
+        'now closed'
+      else
+        'not closed anymore'
+    new Notice 'info', "The thread is #{change}.", 30
 
   parse: (postObjects) ->
     OP = postObjects[0]
     Build.spoilerRange[ThreadUpdater.thread.board] = OP.custom_spoiler
 
-    ThreadUpdater.updateThreadStatus 'Sticky', OP
-    ThreadUpdater.updateThreadStatus 'Closed', OP
+    ThreadUpdater.updateThreadStatus 'Sticky', !!OP.sticky
+    ThreadUpdater.updateThreadStatus 'Closed', !!OP.closed
     ThreadUpdater.thread.postLimit = !!OP.bumplimit
     ThreadUpdater.thread.fileLimit = !!OP.imagelimit
 
@@ -249,15 +246,14 @@ ThreadUpdater =
     ThreadUpdater.lastPost = posts[count - 1].ID
     Main.callbackNodes Post, posts
 
-    scroll = Conf['Auto Scroll'] and ThreadUpdater.scrollBG() and
-      ThreadUpdater.root.getBoundingClientRect().bottom - doc.clientHeight < 25
+    scroll = Conf['Auto Scroll'] and ThreadUpdater.scrollBG() and Header.getBottomOf(ThreadUpdater.root) > -25
     $.add ThreadUpdater.root, nodes
     sendEvent()
     if scroll
       if Conf['Bottom Scroll']
         window.scrollTo 0, d.body.clientHeight
       else
-        Header.scrollToPost nodes[0]
+        Header.scrollTo nodes[0]
 
     # Enable 4chan features.
     threadID = ThreadUpdater.thread.ID

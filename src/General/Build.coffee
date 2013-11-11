@@ -27,7 +27,6 @@ Build =
       date:     data.now
       dateUTC:  data.time
       comment:  data.com
-      capcodeReplies: data.capcode_replies
       # thread status
       isSticky: !!data.sticky
       isClosed: !!data.closed
@@ -55,12 +54,16 @@ Build =
       postID, threadID, boardID
       name, capcode, tripcode, uniqueID, email, subject, flagCode, flagName, date, dateUTC
       isSticky, isClosed
-      comment, capcodeReplies
+      comment
       file
     } = o
     isOP = postID is threadID
 
     staticPath = '//static.4chan.org/image/'
+    gifIcon = if window.devicePixelRatio >= 2
+      '@2x.gif'
+    else
+      '.gif'
 
     if email
       emailStart = '<a href="mailto:' + email + '" class="useremail">'
@@ -83,21 +86,21 @@ Build =
         capcodeClass = " capcodeAdmin"
         capcodeStart = " <strong class='capcode hand id_admin'" +
           "title='Highlight posts by the Administrator'>## Admin</strong>"
-        capcode      = " <img src='#{staticPath}adminicon.gif' " +
+        capcode      = " <img src='#{staticPath}adminicon#{gifIcon}' " +
           "alt='This user is the 4chan Administrator.' " +
           "title='This user is the 4chan Administrator.' class=identityIcon>"
       when 'mod'
         capcodeClass = " capcodeMod"
         capcodeStart = " <strong class='capcode hand id_mod' " +
           "title='Highlight posts by Moderators'>## Mod</strong>"
-        capcode      = " <img src='#{staticPath}modicon.gif' " +
+        capcode      = " <img src='#{staticPath}modicon#{gifIcon}' " +
           "alt='This user is a 4chan Moderator.' " +
           "title='This user is a 4chan Moderator.' class=identityIcon>"
       when 'developer'
         capcodeClass = " capcodeDeveloper"
         capcodeStart = " <strong class='capcode hand id_developer' " +
           "title='Highlight posts by Developers'>## Developer</strong>"
-        capcode      = " <img src='#{staticPath}developericon.gif' " +
+        capcode      = " <img src='#{staticPath}developericon#{gifIcon}' " +
           "alt='This user is a 4chan Developer.' " +
           "title='This user is a 4chan Developer.' class=identityIcon>"
       else
@@ -115,11 +118,11 @@ Build =
     if file?.isDeleted
       fileHTML = if isOP
         "<div class=file id=f#{postID}><div class=fileInfo></div><span class=fileThumb>" +
-          "<img src='#{staticPath}filedeleted.gif' alt='File deleted.' class=fileDeletedRes>" +
+          "<img src='#{staticPath}filedeleted#{gifIcon}' alt='File deleted.' class=fileDeletedRes>" +
         "</span></div>"
       else
         "<div class=file id=f#{postID}><span class=fileThumb>" +
-          "<img src='#{staticPath}filedeleted-res.gif' alt='File deleted.' class=fileDeletedRes>" +
+          "<img src='#{staticPath}filedeleted-res#{gifIcon}' alt='File deleted.' class=fileDeletedRes>" +
         "</span></div>"
     else if file
       ext = file.name[-3..]
@@ -179,11 +182,16 @@ Build =
       ''
 
     sticky = if isSticky
-      " <img src=#{staticPath}sticky.gif alt=Sticky title=Sticky class=stickyIcon>"
+      " <img src=#{staticPath}sticky#{gifIcon} alt=Sticky title=Sticky class=stickyIcon>"
     else
       ''
     closed = if isClosed
-      " <img src=#{staticPath}closed.gif alt=Closed title=Closed class=closedIcon>"
+      " <img src=#{staticPath}closed#{gifIcon} alt=Closed title=Closed class=closedIcon>"
+    else
+      ''
+
+    replyLink = if isOP and g.VIEW is 'index'
+      " &nbsp; <span>[<a href='/#{boardID}/res/#{threadID}' class=replylink>Reply</a>]</span>"
     else
       ''
 
@@ -223,7 +231,7 @@ Build =
           "<span class='nameBlock#{capcodeClass}'>" +
             emailStart +
               "<span class=name>#{name or ''}</span>" + tripcode +
-            capcodeStart + emailEnd + capcode + userID + flag + sticky + closed +
+            capcodeStart + emailEnd + capcode + userID + flag +
           ' </span> ' +
           "<span class=dateTime data-utc=#{dateUTC}>#{date}</span> " +
           "<span class='postNum desktop'>" +
@@ -234,6 +242,7 @@ Build =
               else
                 "/#{boardID}/res/#{threadID}#q#{postID}"
               }' title='Quote this post'>#{postID}</a>" +
+            sticky + closed + replyLink +
           '</span>' +
         '</div>' +
 
@@ -248,36 +257,30 @@ Build =
       continue if href[0] is '/' # Cross-board quote, or board link
       quote.href = "/#{boardID}/res/#{href}" # Fix pathnames
 
-    Build.capcodeReplies {boardID, threadID, root: container, capcodeReplies}
-
     container
 
-  capcodeReplies: ({boardID, threadID, bq, root, capcodeReplies}) ->
-    return unless capcodeReplies
+  summary: (boardID, threadID, posts, files) ->
+    text = []
+    text.push "#{posts} post#{if posts > 1 then 's' else ''}"
+    text.push "and #{files} image repl#{if files > 1 then 'ies' else 'y'}" if files
+    text.push 'omitted.'
+    $.el 'a',
+      className: 'summary'
+      textContent: text.join ' '
+      href: "/#{boardID}/res/#{threadID}"
+  thread: (board, data) ->
+    Build.spoilerRange[board] = data.custom_spoiler
 
-    generateCapcodeReplies = (capcodeType, array) ->
-      "<span class=smaller><span class=bold>#{
-        switch capcodeType
-          when 'admin'
-            'Administrator'
-          when 'mod'
-            'Moderator'
-          when 'developer'
-            'Developer'
-      } Repl#{if array.length > 1 then 'ies' else 'y'}:</span> #{
-        array.map (ID) ->
-          "<a href='/#{boardID}/res/#{threadID}#p#{ID}' class=quotelink>&gt;&gt;#{ID}</a>"
-        .join ' '
-      }</span><br>"
-    html = []
-    for capcodeType, array of capcodeReplies
-      html.push generateCapcodeReplies capcodeType, array
+    if (OP = board.posts[data.no]) and root = OP.nodes.root.parentNode
+      $.rmAll root
+    else
+      root = $.el 'div',
+        className: 'thread'
+        id: "t#{data.no}"
 
-    bq or= $ 'blockquote', root
-    $.add bq, [
-      $.el 'br'
-      $.el 'br'
-      $.el 'span',
-        className: 'capcodeReplies'
-        innerHTML: html.join ''
-    ]
+    nodes = [if OP then OP.nodes.root else Build.postFromObject data, board.ID]
+    if data.omitted_posts
+      nodes.push Build.summary board.ID, data.no, data.omitted_posts, data.omitted_images
+
+    $.add root, nodes
+    root

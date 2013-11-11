@@ -1,21 +1,20 @@
 module.exports = (grunt) ->
 
-  concatOptions =
-    process: Object.create(null, data:
-      get: -> grunt.config 'pkg'
-      enumerable: true
-    )
-  shellOptions =
-    stdout: true
-    stderr: true
-    failOnError: true
+  importHTML = (filename) ->
+    "\"\"\"#{grunt.file.read("html/#{filename}.html").replace(/^\s+|\s+$</gm, '').replace(/\n/g, '')}\"\"\""
 
   # Project configuration.
   grunt.initConfig
     pkg: grunt.file.readJSON 'package.json'
     concat:
+      options: process: Object.create(null, data:
+        get: ->
+          pkg = grunt.config 'pkg'
+          pkg.importHTML = importHTML
+          pkg
+        enumerable: true
+      )
       coffee:
-        options: concatOptions
         src: [
           'src/General/Config.coffee'
           'src/General/Globals.coffee'
@@ -24,6 +23,7 @@ module.exports = (grunt) ->
           'src/General/Header.coffee'
           'src/General/Notice.coffee'
           'src/General/Settings.coffee'
+          'src/General/Index.coffee'
           'src/General/Get.coffee'
           'src/General/Build.coffee'
           # Features -->
@@ -46,7 +46,6 @@ module.exports = (grunt) ->
         ]
         dest: 'tmp-<%= pkg.type %>/script.coffee'
       crx:
-        options: concatOptions
         files:
           'builds/crx/manifest.json': 'src/Meta/manifest.json'
           'builds/crx/script.js': [
@@ -55,7 +54,6 @@ module.exports = (grunt) ->
             'tmp-<%= pkg.type %>/script.js'
           ]
       userscript:
-        options: concatOptions
         files:
           'builds/<%= pkg.name %>.meta.js': 'src/Meta/metadata.js'
           'builds/<%= pkg.name %>.user.js': [
@@ -83,21 +81,24 @@ module.exports = (grunt) ->
         createTag: false
         push:      false
     shell:
+      options:
+        stdout: true
+        stderr: true
+        failOnError: true
+      checkout:
+        command: 'git checkout <%= pkg.meta.mainBranch %>'
       commit:
-        options: shellOptions
-        command: [
-          'git checkout <%= pkg.meta.mainBranch %>'
-          'git commit -am "Release <%= pkg.meta.name %> v<%= pkg.version %>."'
-          'git tag -a <%= pkg.version %> -m "<%= pkg.meta.name %> v<%= pkg.version %>."'
-          'git tag -af stable-v3 -m "<%= pkg.meta.name %> v<%= pkg.version %>."'
-        ].join ' && '
+        command: """
+          git commit -am "Release <%= pkg.meta.name %> v<%= pkg.version %>."
+          git tag -a <%= pkg.version %> -m "<%= pkg.meta.name %> v<%= pkg.version %>."
+          git tag -af stable-v3 -m "<%= pkg.meta.name %> v<%= pkg.version %>."
+        """
       push:
-        options: shellOptions
         command: 'git push origin --tags -f && git push origin --all'
     watch:
+      options:
+        interrupt: true
       all:
-        options:
-          interrupt: true
         files: [
           'Gruntfile.coffee'
           'package.json'
@@ -151,9 +152,9 @@ module.exports = (grunt) ->
   ]
 
   grunt.registerTask 'release', ['shell:commit', 'shell:push', 'build-crx', 'compress:crx']
-  grunt.registerTask 'patch',   ['bump',       'updcl:3', 'release']
-  grunt.registerTask 'minor',   ['bump:minor', 'updcl:2', 'release']
-  grunt.registerTask 'major',   ['bump:major', 'updcl:1', 'release']
+  grunt.registerTask 'patch',   ['shell:checkout', 'bump',       'updcl:3', 'release']
+  grunt.registerTask 'minor',   ['shell:checkout', 'bump:minor', 'updcl:2', 'release']
+  grunt.registerTask 'major',   ['shell:checkout', 'bump:major', 'updcl:1', 'release']
 
   grunt.registerTask 'updcl', 'Update the changelog', (headerLevel) ->
     headerPrefix = new Array(+headerLevel + 1).join '#'

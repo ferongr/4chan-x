@@ -4,19 +4,56 @@ Linkify =
 
     # gruber revised + magnet support
     # http://df4.us/fv9
-    @catchAll = /\b([a-z][\w-]+:(\/{1,3}|[a-z0-9%]|\?(dn|x[lts]|as|kt|mt|tr)=)|www\d{0,3}\.|[a-z0-9.\-]+\.[a-z]{2,4}\/)([^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'".,<>?«»“”‘’])/g
+    @catchAll = ///
+      \b
+      (
+        (            # Allowed URL protocols and colon
+          https?
+          | ftps?
+          | about
+          | bitcoin
+          | git
+          | irc[s6]?
+        ):
+        (
+          /{1,3}    # 1-3 slashes
+          |         #   or
+          [a-z0-9%] # Single letter or digit or '%'
+        )
+        |                                 #   or
+        www\d{0,3}[.]                     # "www.", "www1.", "www2." … "www999."
+        |                                 #   or
+        [a-z0-9.\-]+[.][a-z]{2,4}/        # looks like domain name followed by a slash
+        |                                 #   or
+        magnet:\?(dn|x[lts]|as|kt|mt|tr)= # magnet protocol with its parameters
+      )
+      (                                    # One or more:
+        [^\s()<>]+                         # Run of non-space, non-()<>
+        |                                  #   or
+        \(([^\s()<>]+|(\([^\s()<>]+\)))*\) # balanced parens, up to 2 levels
+      )+
+      (                                    # End with:
+        \(([^\s()<>]+|(\([^\s()<>]+\)))*\) # balanced parens, up to 2 levels
+        |                                  #   or
+        [^\s`!()\[\]{};:'".,<>?«»“”‘’]     # not a space or one of these punct chars
+      )
+    ///g
 
-    Post::callbacks.push
+    Post.callbacks.push
       name: 'Linkify'
       cb:   @node
 
   node: ->
     return if @isClone or !links = @info.comment.match Linkify.catchAll
-    walker = d.createTreeWalker @nodes.comment, 4
+    walker = d.createTreeWalker @nodes.comment, 1 | 4, acceptNode: (node) ->
+      return if node.nodeName in ['#text', 'BR']
+        1 # NodeFilter.FILTER_ACCEPT
+      else
+        3 # NodeFilter.FILTER_SKIP
     range  = d.createRange()
     for link in links
       boundaries = Linkify.find link, walker
-      # break unless boundaries
+      continue unless boundaries
       anchor = Linkify.createLink link
       if Linkify.surround anchor, range, boundaries
         if (parent = anchor.parentNode).href is anchor.href
@@ -26,16 +63,18 @@ Linkify =
         Linkify.cleanLink anchor, link if Conf['Clean Links']
         walker.currentNode = anchor.lastChild
       else
-        walker.currentNode = boundaries.endNode
+        walker.previousNode()
     range.detach()
 
   find: (link, walker) ->
     # Walk through the nodes until we find the entire link.
     text = ''
     while node = walker.nextNode()
+      if node.nodeName is 'BR'
+        return Linkify.find link, walker
       text += node.data
       break if text.indexOf(link) > -1
-    # return unless node
+    return unless node
     startNode = endNode = node
 
     # Walk backwards to find the startNode.

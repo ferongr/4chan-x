@@ -32,18 +32,6 @@ Main =
     Conf['archives'] = Redirect.archives
     $.get Conf, (items) ->
       $.extend Conf, items
-      <% if (type === 'crx') { %>
-      unless items
-        new Notice 'error', $.el 'span',
-          innerHTML: """
-          It seems like your <%= meta.name %> settings became corrupted due to a <a href="https://code.google.com/p/chromium/issues/detail?id=261623" target=_blank>Chrome bug</a>.<br>
-          Unfortunately, you'll have to <a href="https://github.com/MayhemYDG/4chan-x/wiki/FAQ#known-problems" target=_blank>fix it yourself</a>.
-          """
-        # Track resolution of this bug.
-        Main.logError
-          message: 'Chrome Storage API bug'
-          error: new Error '~'
-      <% } %>
       Main.initFeatures()
 
     $.on d, '4chanMainInit', Main.initStyle
@@ -81,6 +69,7 @@ Main =
     initFeature 'Polyfill',                 Polyfill
     initFeature 'Header',                   Header
     initFeature 'Settings',                 Settings
+    initFeature 'Index Generator',          Index
     initFeature 'Announcement Hiding',      PSAHiding
     initFeature 'Fourchan thingies',        Fourchan
     initFeature 'Custom CSS',               CustomCSS
@@ -117,7 +106,6 @@ Main =
     initFeature 'Reveal Spoilers',          RevealSpoilers
     initFeature 'Auto-GIF',                 AutoGIF
     initFeature 'Image Hover',              ImageHover
-    initFeature 'Comment Expansion',        ExpandComment
     initFeature 'Thread Expansion',         ExpandThread
     initFeature 'Thread Excerpt',           ThreadExcerpt
     initFeature 'Favicon',                  Favicon
@@ -181,36 +169,40 @@ Main =
     # Something might have gone wrong!
     Main.initStyle()
 
-    if board = $ '.board'
-      threads = []
-      posts   = []
-
-      for threadRoot in $$ '.board > .thread', board
-        thread = new Thread +threadRoot.id[1..], g.BOARD
-        threads.push thread
-        for postRoot in $$ '.thread > .postContainer', threadRoot
-          try
-            posts.push new Post postRoot, thread, g.BOARD
-          catch err
-            # Skip posts that we failed to parse.
-            unless errors
-              errors = []
-            errors.push
-              message: "Parsing of Post No.#{postRoot.id.match(/\d+/)} failed. Post will be skipped."
-              error: err
+    if g.VIEW is 'thread' and threadRoot = $ '.thread'
+      thread = new Thread +threadRoot.id[1..], g.BOARD
+      posts  = []
+      for postRoot in $$ '.thread > .postContainer', threadRoot
+        try
+          posts.push new Post postRoot, thread, g.BOARD
+        catch err
+          # Skip posts that we failed to parse.
+          errors = [] unless errors
+          errors.push
+            message: "Parsing of Post No.#{postRoot.id.match /\d+/} failed. Post will be skipped."
+            error: err
       Main.handleErrors errors if errors
 
-      Main.callbackNodes Thread, threads
+      Main.callbackNodes Thread, [thread]
       Main.callbackNodes Post, posts
 
     if $.hasClass d.body, 'fourchan_x'
       Main.disableReports = true
       alert '4chan X v2 detected: Disable it or v3 will break.'
 
+    <% if (type === 'userscript') { %>
+    GMver = GM_info.version.split '.'
+    for v, i in "<%= meta.min.greasemonkey %>".split '.'
+      break if v < GMver[i]
+      continue if v is GMver[i]
+      new Notice 'warning', "Your version of Greasemonkey is outdated (v#{GM_info.version} instead of v<%= meta.min.greasemonkey %> minimum) and <%= meta.name %> may not operate correctly.", 30
+      break
+    <% } %>
+
     try
       localStorage.getItem '4chan-settings'
     catch err
-      new Notice 'warning', 'Cookies need to be enabled on 4chan for <%= meta.name %> to properly function.', 30
+      new Notice 'warning', 'Cookies need to be enabled on 4chan for <%= meta.name %> to operate properly.', 30
       Main.disableReports = true
 
     $.event '4chanXInitFinished'
@@ -218,7 +210,7 @@ Main =
   callbackNodes: (klass, nodes) ->
     # get the nodes' length only once
     len = nodes.length
-    for callback in klass::callbacks
+    for callback in klass.callbacks
       # c.profile callback.name
       for i in [0...len] by 1
         node = nodes[i]
@@ -245,7 +237,7 @@ Main =
       else
         return
     obj.callback.isAddon = true
-    Klass::callbacks.push obj.callback
+    Klass.callbacks.push obj.callback
 
   handleErrors: (errors) ->
     unless errors instanceof Array
@@ -323,7 +315,7 @@ Main =
   css: """
   @font-face {
     font-family: 'FontAwesome';
-    src: url('data:application/font-woff;base64,<%= grunt.file.read('node_modules/font-awesome/font/fontawesome-webfont.woff', {encoding: 'base64'}) %>') format('woff');
+    src: url('data:application/font-woff;base64,<%= grunt.file.read('node_modules/font-awesome/fonts/fontawesome-webfont.woff', {encoding: 'base64'}) %>') format('woff');
     font-weight: normal;
     font-style: normal;
   }

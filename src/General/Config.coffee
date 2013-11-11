@@ -9,7 +9,6 @@ Config =
       'Time Formatting':              [true,  'Localize and format timestamps.']
       'Relative Post Dates':          [false, 'Display dates like "3 minutes ago". Tooltip shows the timestamp.']
       'File Info Formatting':         [true,  'Reformat the file information.']
-      'Comment Expansion':            [true,  'Add buttons to expand too long comments.']
       'Thread Expansion':             [true,  'Add buttons to expand threads.']
       'Index Navigation':             [false, 'Add buttons to navigate between threads.']
       'Reply Navigation':             [false, 'Add buttons to navigate to top / bottom of thread.']
@@ -107,10 +106,7 @@ Config =
       # Set a custom class for moot:
       #/Admin$/;highlight:moot;op:yes
     """
-    email: """
-      # Filter any e-mails that are not `sage` on /a/ and /jp/:
-      #/^(?!sage$)/;boards:a,jp
-    """
+    email: ""
     subject: """
       # Filter Generals on /v/:
       #/general/i;boards:v;op:only
@@ -143,6 +139,9 @@ Config =
     #//archive.installgentoo.net/%board/image/%MD5;text:View same on installgentoo /%board/
   """
   'Custom CSS': false
+  Index:
+    'Index Mode': 'paged'
+    'Index Sort': 'bump'
   Header:
     'Header auto-hide':        false
     'Bottom header':           false
@@ -173,9 +172,9 @@ Config =
     'Eqn tags':           ['Alt+e',   'Insert eqn tags.']
     'Math tags':          ['Alt+m',   'Insert math tags.']
     'Submit QR':          ['Alt+s',   'Submit post.']
-    # Thread related
+    # Index/Thread related
+    'Update':             ['r',       'Refresh the index/thread.']
     'Watch':              ['w',       'Watch thread.']
-    'Update':             ['r',       'Update the thread.']
     # Images
     'Expand image':       ['Shift+e', 'Expand selected image.']
     'Expand images':      ['e',       'Expand all images.']
@@ -184,6 +183,7 @@ Config =
     'Open front page':    ['Shift+0', 'Open page 0 in a new tab.']
     'Next page':          ['Right',   'Jump to the next page.']
     'Previous page':      ['Left',    'Jump to the previous page.']
+    'Search form':        ['Ctrl+Alt+s', 'Open the search field on the board index.']
     # Thread Navigation
     'Next thread':        ['Down',    'See next thread.']
     'Previous thread':    ['Up',      'See previous thread.']
